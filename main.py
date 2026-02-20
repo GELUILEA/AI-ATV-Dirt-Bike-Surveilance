@@ -1,18 +1,15 @@
-"""
-main.py - Main integration script for AI Wash Guard
-"""
-
 import time
 import logging
 import signal
 import sys
-import argparse
+import threading
 from camera_manager import CameraManager
 from ai_detector import AiDetector
 from relay_controller import RelayController
 from notifier import EmailNotifier
 from database import DatabaseManager
 from config_manager import ConfigManager
+from gui.dashboard import DashboardApp
 
 # ── Logging Setup ────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -43,7 +40,7 @@ class AIWashGuard:
         # 3. AI
         self.detector = AiDetector(model_path=ai_cfg["model"], confidence=ai_cfg["confidence"])
         
-        # 4. Cameras (Only active ones)
+        # 4. Cameras
         self.active_cameras = [c for c in cam_cfg if c.get("enabled", True)]
         self.cameras = CameraManager(self.active_cameras)
         
@@ -56,21 +53,22 @@ class AIWashGuard:
         self.db_enabled = db_cfg["enabled"]
         
         # Track detection state
-        self.detection_counters = {cam['name']: 0 for cam in self.active_cameras}
-        self.session_ids = {cam['name']: None for cam in self.active_cameras}
+        self.detection_counters = {cam['name']: 0 for cam in cam_cfg}
+        self.session_ids = {cam['name']: None for cam in cam_cfg}
         self.DETECTION_THRESHOLD = 2
 
-    def run(self):
+    def monitoring_loop(self):
+        """Background thread for AI monitoring."""
         if not self.active_cameras:
-            logger.error("Nicio cameră activată în setări! Ieșire.")
+            logger.warning("Nicio cameră activată în setări. Monitorizare fundal inactivă.")
+            while self.running: time.sleep(1)
             return
 
-        logger.info(f"Monitorizare activă pentru {len(self.active_cameras)} boxe.")
+        logger.info(f"Monitorizare AI pornită în fundal ({len(self.active_cameras)} boxe).")
         try:
             while self.running:
                 frames = self.cameras.get_latest_frames()
                 
-                # cameras list to iterate through indices consistently
                 for i, cam in enumerate(self.active_cameras):
                     cam_name = cam['name']
                     frame = frames.get(cam_name)
@@ -81,13 +79,11 @@ class AIWashGuard:
                     if detected:
                         self.detection_counters[cam_name] += 1
                         if self.detection_counters[cam_name] >= self.DETECTION_THRESHOLD:
-                            logger.error(f"!!! ALARMĂ {cam_name} !!! Întrerupere curent.")
-                            # Hardware index is based on global pins list if needed, 
-                            # but here we use the camera ID for relay mapping
                             relay_idx = cam.get("id", i)
                             self.relays.set_relay(relay_idx, True)
                             
                             if self.detection_counters[cam_name] == self.DETECTION_THRESHOLD:
+                                logger.error(f"!!! ALARMĂ {cam_name} !!! - Vehicul Interzis.")
                                 if self.email_enabled:
                                     self.notifier.send_alert(cam_name, "Vehicul Interzis (ATV/Cross)")
                                 if self.db_enabled:
@@ -105,10 +101,10 @@ class AIWashGuard:
                                 
                         self.detection_counters[cam_name] = 0
                 
-                time.sleep(0.05)
+                time.sleep(0.01)
                 
-        except KeyboardInterrupt:
-            self.stop()
+        except Exception as e:
+            logger.error(f"Eroare în bucla de monitorizare: {e}")
 
     def stop(self, *args):
         logger.info("Oprire sistem...")
@@ -119,16 +115,18 @@ class AIWashGuard:
         sys.exit(0)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AI Wash Guard System")
-    parser.add_argument("--settings", action="store_true", help="Deschide interfața de setări")
-    args = parser.parse_args()
-
-    if args.settings:
-        from gui.settings_app import SettingsApp
-        app = SettingsApp()
-        app.mainloop()
-    else:
-        app = AIWashGuard()
-        signal.signal(signal.SIGINT, app.stop)
-        signal.signal(signal.SIGTERM, app.stop)
-        app.run()
+    engine = AIWashGuard()
+    
+    # Start AI monitoring in background daemon thread
+    monitor_thread = threading.Thread(target=engine.monitoring_loop, daemon=True)
+    monitor_thread.start()
+    
+    # Start Dashboard in main thread
+    app = DashboardApp(engine)
+    
+    # Handle OS signals
+    signal.signal(signal.SIGINT, engine.stop)
+    signal.signal(signal.SIGTERM, engine.stop)
+    
+    app.mainloop()
+    engine.stop()

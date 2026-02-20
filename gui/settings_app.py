@@ -10,19 +10,24 @@ from config_manager import ConfigManager
 ctk.set_appearance_mode("Dark")
 ctk.set_default_color_theme("blue")
 
-class SettingsApp(ctk.CTk):
-    def __init__(self):
-        super().__init__()
+class SettingsApp(ctk.CTkToplevel):
+    def __init__(self, parent=None):
+        super().__init__(parent)
         self.config_manager = ConfigManager()
         
         self.title("🛡️ AI Wash Guard - Setări")
         self.geometry("700x650")
+        self.attributes("-topmost", True)  # Keep on top
         
         # Grid layout
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
         
         self._build_ui()
+        
+        # Make it modal-ish
+        if parent:
+            self.grab_set()
 
     def _build_ui(self):
         # Tabview

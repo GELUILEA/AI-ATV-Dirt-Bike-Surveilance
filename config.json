@@ -1,0 +1,54 @@
+{
+    "cameras": [
+        {
+            "id": 0,
+            "name": "Boxa 1",
+            "url": "rtsp://admin:parola1@192.168.1.101:554/Streaming/Channels/101",
+            "enabled": true
+        },
+        {
+            "id": 1,
+            "name": "Boxa 2",
+            "url": "rtsp://admin:parola1@192.168.1.102:554/Streaming/Channels/101",
+            "enabled": false
+        },
+        {
+            "id": 2,
+            "name": "Boxa 3",
+            "url": "rtsp://admin:parola1@192.168.1.103:554/Streaming/Channels/101",
+            "enabled": false
+        },
+        {
+            "id": 3,
+            "name": "Boxa 4",
+            "url": "rtsp://admin:parola1@192.168.1.104:554/Streaming/Channels/101",
+            "enabled": false
+        }
+    ],
+    "email": {
+        "enabled": false,
+        "sender": "adresa.ta@gmail.com",
+        "app_password": "",
+        "recipient": "destinatar@email.com"
+    },
+    "mysql": {
+        "enabled": false,
+        "host": "localhost",
+        "user": "root",
+        "password": "",
+        "database": "wash_guard_db"
+    },
+    "hardware": {
+        "relay_pins": [
+            23,
+            24,
+            17,
+            27
+        ],
+        "active_low": true
+    },
+    "ai": {
+        "confidence": 0.45,
+        "model": "yolov8n.pt"
+    }
+}
