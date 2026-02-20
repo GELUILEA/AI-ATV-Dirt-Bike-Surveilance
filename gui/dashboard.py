@@ -45,7 +45,9 @@ class CameraWidget(ctk.CTkFrame):
                 
                 self.video_label.configure(image=img_tk, text="")
             except Exception as e:
-                logger.error(f"Eroare update frame {self.camera_name}: {e}")
+                if not hasattr(self, '_import_error_shown'):
+                    logger.error(f"Eroare update frame {self.camera_name}: {e}. Asigurați-vă că 'python3-pil.imagetk' este instalat pe Raspberry Pi.")
+                    self._import_error_shown = True
             
         if is_alert:
             self.status_label.configure(text="STATUS: !!! ALARMĂ !!!", text_color="red")
