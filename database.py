@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     """
-    Handles MySQL connection and logging of incidents.
+    Handles MySQL connection and logging of incidents with lazy initialization.
     """
     def __init__(self, host, user, password, database):
         self.config = {
@@ -20,24 +20,31 @@ class DatabaseManager:
             'database': database
         }
         self.conn = None
-        self._initialize_db()
 
     def _get_connection(self):
+        """Lazy connection establishment."""
         try:
             if self.conn is None or not self.conn.is_connected():
-                self.conn = mysql.connector.connect(**self.config)
+                logger.info(f"Încercare conectare la baza de date: {self.config.get('host')}")
+                self.conn = mysql.connector.connect(
+                    host=self.config['host'],
+                    user=self.config['user'],
+                    password=self.config['password'],
+                    database=self.config['database'],
+                    connect_timeout=3
+                )
+                self._initialize_db_tables()
             return self.conn
-        except mysql.connector.Error as err:
+        except Exception as err:
             logger.error(f"Eroare conectare MySQL: {err}")
             return None
 
-    def _initialize_db(self):
-        """Creates the necessary table if it doesn't exist."""
-        conn = self._get_connection()
-        if not conn: return
+    def _initialize_db_tables(self):
+        """Creates the necessary tables if they don't exist. Called after successful connection."""
+        if not self.conn or not self.conn.is_connected(): return
         
         try:
-            cursor = conn.cursor()
+            cursor = self.conn.cursor()
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS Wash_Incidents (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -55,13 +62,13 @@ class DatabaseManager:
                     duration_seconds INT
                 )
             """)
-            conn.commit()
+            self.conn.commit()
+            cursor.close()
             logger.info("Baza de date și tabelele sunt pregătite.")
         except mysql.connector.Error as err:
             logger.error(f"Eroare inițializare tabelă: {err}")
 
     def log_incident(self, bay_name, vehicle_type):
-        """Inserts a new incident record into the database."""
         conn = self._get_connection()
         if not conn: return
         
@@ -70,12 +77,12 @@ class DatabaseManager:
             query = "INSERT INTO Wash_Incidents (bay_name, vehicle_type, timestamp) VALUES (%s, %s, %s)"
             cursor.execute(query, (bay_name, vehicle_type, datetime.now()))
             conn.commit()
+            cursor.close()
             logger.info(f"Incident salvat în DB pentru {bay_name}.")
         except mysql.connector.Error as err:
             logger.error(f"Eroare salvare incident în DB: {err}")
 
     def start_session(self, bay_name):
-        """Logs the start of a wash session."""
         conn = self._get_connection()
         if not conn: return None
         
@@ -85,22 +92,23 @@ class DatabaseManager:
             cursor.execute(query, (bay_name, datetime.now()))
             session_id = cursor.lastrowid
             conn.commit()
+            cursor.close()
             return session_id
         except mysql.connector.Error as err:
             logger.error(f"Eroare pornire sesiune: {err}")
             return None
 
     def end_session(self, session_id):
-        """Logs the end of a wash session and calculates duration."""
         conn = self._get_connection()
         if not conn or session_id is None: return
         
         try:
             cursor = conn.cursor()
-            # Get start time to calculate duration
             cursor.execute("SELECT start_time FROM Wash_Sessions WHERE id = %s", (session_id,))
             result = cursor.fetchone()
-            if not result: return
+            if not result: 
+                cursor.close()
+                return
             
             start_time = result[0]
             end_time = datetime.now()
@@ -109,44 +117,24 @@ class DatabaseManager:
             query = "UPDATE Wash_Sessions SET end_time = %s, duration_seconds = %s WHERE id = %s"
             cursor.execute(query, (end_time, duration, session_id))
             conn.commit()
+            cursor.close()
             logger.info(f"Sesiune {session_id} încheiată. Durată: {duration} secunde.")
         except mysql.connector.Error as err:
             logger.error(f"Eroare închidere sesiune: {err}")
 
     def update_config(self, host, user, password, database):
-        """
-        Updates the database connection configuration and attempts to reconnect.
-        """
-        if (self.config['host'] == host and 
-            self.config['user'] == user and 
-            self.config['database'] == database):
-            logger.info("Configurația bazei de date este deja actualizată.")
-            return
-        
-        logger.info("Actualizare configurație bază de date...")
+        """Updates config. Connection will happen lazily on next use."""
         self.config['host'] = host
         self.config['user'] = user
         self.config['password'] = password
         self.config['database'] = database
-        
-        self.close() # Close existing connection
-        self._reconnect() # Attempt to establish a new connection with updated config
-
-    def _reconnect(self):
-        """
-        Attempts to establish a new connection using the current configuration.
-        This is called internally after config updates or if a connection is lost.
-        """
-        logger.info("Încercare reconectare la baza de date...")
-        self.conn = None # Ensure _get_connection tries to make a new connection
-        self._get_connection()
-        if self.conn and self.conn.is_connected():
-            logger.info("Reconectare la baza de date reușită.")
-            self._initialize_db() # Re-initialize tables in case of new database
-        else:
-            logger.error("Reconectare la baza de date eșuată.")
+        self.close() # Reset connection to force lazy reconnect
 
     def close(self):
         if self.conn and self.conn.is_connected():
-            self.conn.close()
-            logger.info("Conexiune MySQL închisă.")
+            try:
+                self.conn.close()
+                logger.info("Conexiune MySQL închisă.")
+            except:
+                pass
+        self.conn = None

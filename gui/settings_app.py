@@ -171,7 +171,7 @@ class SettingsApp(ctk.CTkToplevel):
         except Exception as e:
             messagebox.showerror("Eroare", f"Format invalid pentru pini sau AI confidence: {e}")
            # Save to file
-        self.config_manager.save_config()
+        self.config_manager.save()
         
         # Trigger engine reload and UI refresh
         if self.master and hasattr(self.master, 'engine'):

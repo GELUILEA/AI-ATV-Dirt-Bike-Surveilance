@@ -153,20 +153,30 @@ class AIWashGuard:
         sys.exit(0)
 
 if __name__ == "__main__":
-    engine = AIWashGuard()
-    
-    # Start AI monitoring thread
-    monitor_thread = threading.Thread(target=engine.monitoring_loop, daemon=True)
-    monitor_thread.start()
-    
-    # Start Dashboard
-    app = DashboardApp(engine)
-    
-    # Signals
-    signal.signal(signal.SIGINT, engine.stop)
-    signal.signal(signal.SIGTERM, engine.stop)
-    
     try:
+        engine = AIWashGuard()
+        
+        # Start AI monitoring thread
+        monitor_thread = threading.Thread(target=engine.monitoring_loop, daemon=True)
+        monitor_thread.start()
+        
+        # Start Dashboard
+        app = DashboardApp(engine)
+        
+        # Signals
+        signal.signal(signal.SIGINT, engine.stop)
+        signal.signal(signal.SIGTERM, engine.stop)
+        
         app.mainloop()
+    except Exception as e:
+        import tkinter as tk
+        from tkinter import messagebox
+        root = tk.Tk()
+        root.withdraw()
+        logger.error(f"Eroare fatală la pornire: {e}")
+        messagebox.showerror("Eroare AI Wash Guard", f"Aplicația nu a putut porni:\n\n{e}")
+        root.destroy()
+        sys.exit(1)
     finally:
-        engine.stop()
+        if 'engine' in locals():
+            engine.stop()
