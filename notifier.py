@@ -21,6 +21,12 @@ class EmailNotifier:
         self.smtp_server = "smtp.gmail.com"
         self.smtp_port = 587
 
+    def update_credentials(self, sender, app_password, recipient):
+        self.sender_email = sender
+        self.app_password = app_password
+        self.recipient_email = recipient
+        logger.info("Email credentials updated.")
+
     def send_alert(self, bay_name, vehicle_type):
         """
         Sends an alert email for a detection incident.

@@ -1,6 +1,6 @@
 """
-camera_manager.py - Multi-stream RTSP manager for Hikvision cameras
-Uses threads to ensure low latency for AI processing.
+camera_manager.py - Multi-threaded RTSP frame capturing
+Now supports dynamic updates to the camera list.
 """
 
 import cv2
@@ -11,65 +11,93 @@ import logging
 logger = logging.getLogger(__name__)
 
 class CameraStream:
-    """Handles a single RTSP stream in a background thread."""
-    def __init__(self, name, rtsp_url):
+    def __init__(self, name, url):
         self.name = name
-        self.rtsp_url = rtsp_url
-        self.cap = cv2.VideoCapture(rtsp_url)
+        self.url = url
         self.frame = None
-        self.running = False
+        self.stopped = False
         self.thread = None
         self.lock = threading.Lock()
-        
-        if not self.cap.isOpened():
-            logger.error(f"Nu s-a putut deschide stream-ul pentru {name}")
-        else:
-            self.running = True
-            self.thread = threading.Thread(target=self._update, name=f"Thread-{name}", daemon=True)
+
+    def start(self):
+        if self.thread is None or not self.thread.is_alive():
+            self.stopped = False
+            self.thread = threading.Thread(target=self._update, args=(), daemon=True)
             self.thread.start()
+        return self
 
     def _update(self):
-        while self.running:
-            ret, frame = self.cap.read()
-            if not ret:
-                logger.warning(f"Conexiune pierdută cu {self.name}. Reîncercare...")
-                self.cap.release()
+        while not self.stopped:
+            cap = cv2.VideoCapture(self.url)
+            # Short timeout check
+            if not cap.isOpened():
+                logger.error(f"Nu s-a putut deschide fluxul: {self.name} ({self.url}). Reîncercare...")
+                cap.release()
                 time.sleep(5)
-                self.cap = cv2.VideoCapture(self.rtsp_url)
                 continue
-            
-            with self.lock:
-                self.frame = frame
 
-    def get_frame(self):
+            logger.info(f"Conectat la fluxul: {self.name}")
+            while not self.stopped:
+                ret, frame = cap.read()
+                if not ret:
+                    logger.warning(f"S-a pierdut conexiunea cu {self.name}. Re-conectare...")
+                    break
+                
+                with self.lock:
+                    self.frame = frame
+                
+                # Prevent CPU bottleneck
+                time.sleep(0.01)
+            
+            cap.release()
+            time.sleep(2)
+
+    def read(self):
         with self.lock:
-            return self.frame.copy() if self.frame is not None else None
+            return self.frame
 
     def stop(self):
-        self.running = False
+        self.stopped = True
         if self.thread:
-            self.thread.join()
-        if self.cap:
-            self.cap.release()
+            self.thread.join(timeout=2)
 
 class CameraManager:
-    """Manages multiple CameraStream instances."""
-    def __init__(self, camera_configs: list):
-        """
-        camera_configs: List of dicts with {'name': 'Boxa 1', 'url': 'rtsp://...'}
-        """
+    def __init__(self, cameras_config):
         self.streams = {}
-        for cfg in camera_configs:
-            name = cfg['name']
-            url = cfg['url']
-            logger.info(f"Inițializare flux camera: {name}")
-            self.streams[name] = CameraStream(name, url)
+        self.update_config(cameras_config)
 
-    def get_latest_frames(self) -> dict:
-        """Returns the latest frame for each camera."""
-        return {name: stream.get_frame() for name, stream in self.streams.items()}
+    def update_config(self, cameras_config):
+        """Update active streams based on new config."""
+        new_names = [c['name'] for c in cameras_config if c.get('enabled', True) and c.get('url')]
+        
+        # Stop streams that are no longer present or enabled
+        to_remove = [name for name in self.streams if name not in new_names]
+        for name in to_remove:
+            logger.info(f"Oprire flux camera: {name}")
+            self.streams[name].stop()
+            del self.streams[name]
+
+        # Start or update streams
+        for cam in cameras_config:
+            if not cam.get('enabled', True) or not cam.get('url'):
+                continue
+                
+            name = cam['name']
+            url = cam['url']
+            
+            if name in self.streams:
+                if self.streams[name].url != url:
+                    logger.info(f"Actualizare URL pentru {name}")
+                    self.streams[name].stop()
+                    self.streams[name] = CameraStream(name, url).start()
+            else:
+                logger.info(f"Inițializare flux camera: {name}")
+                self.streams[name] = CameraStream(name, url).start()
+
+    def get_latest_frames(self):
+        return {name: stream.read() for name, stream in self.streams.items()}
 
     def stop_all(self):
         for stream in self.streams.values():
             stream.stop()
-        logger.info("Toate fluxurile video au fost oprite.")
+        self.streams = {}

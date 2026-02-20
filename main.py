@@ -21,52 +21,90 @@ logger = logging.getLogger("AWG")
 class AIWashGuard:
     def __init__(self):
         self.running = True
-        logger.info("Inițializare sistem AI Wash Guard...")
+        logger.info("🚗 Inițializare sistem AI Wash Guard...")
         
         # 1. Config
         self.config_mgr = ConfigManager()
         self.cfg = self.config_mgr.config
         
+        # 2. Hardcoded / Defaults for detection logic
+        self.DETECTION_THRESHOLD = 2
+        
+        # Initial setup of components
+        self._setup_components()
+        
+        # Track detection state per camera
+        self._reset_detection_states()
+
+    def _setup_components(self):
+        """Initialize or re-initialize all core components based on current config."""
         cam_cfg = self.config_mgr.get_cameras()
         email_cfg = self.config_mgr.get_email_settings()
         db_cfg = self.config_mgr.get_mysql_settings()
         hw_cfg = self.config_mgr.get_hardware_settings()
-        ai_cfg = self.cfg["ai"]
+        ai_cfg = self.cfg.get("ai", {"model": "yolov8n.pt", "confidence": 0.5})
         
-        # 2. Hardware
-        self.relay_pins = hw_cfg["relay_pins"]
-        self.relays = RelayController(pins=self.relay_pins, active_low=hw_cfg["active_low"])
+        # Hardware
+        relay_pins = hw_cfg["relay_pins"]
+        if not hasattr(self, 'relays'):
+            self.relays = RelayController(pins=relay_pins, active_low=hw_cfg["active_low"])
+        else:
+            # Check if pins changed (simplified: just recreate if logic is complex)
+            if self.relays.pins != relay_pins:
+                logger.info("Pinii de releu s-au schimbat. Reinițializare hardware.")
+                self.relays.cleanup()
+                self.relays = RelayController(pins=relay_pins, active_low=hw_cfg["active_low"])
+
+        # AI
+        if not hasattr(self, 'detector'):
+            self.detector = AiDetector(model_path=ai_cfg["model"], confidence=ai_cfg["confidence"])
         
-        # 3. AI
-        self.detector = AiDetector(model_path=ai_cfg["model"], confidence=ai_cfg["confidence"])
-        
-        # 4. Cameras
+        # Cameras (Robust: will be empty if none configured)
         self.active_cameras = [c for c in cam_cfg if c.get("enabled", True)]
-        self.cameras = CameraManager(self.active_cameras)
+        if not hasattr(self, 'cameras'):
+            self.cameras = CameraManager(cam_cfg)
+        else:
+            self.cameras.update_config(cam_cfg)
         
-        # 5. Notifier
-        self.notifier = EmailNotifier(email_cfg["sender"], email_cfg["app_password"], email_cfg["recipient"])
+        # Notifier
+        if not hasattr(self, 'notifier'):
+            self.notifier = EmailNotifier(email_cfg["sender"], email_cfg["app_password"], email_cfg["recipient"])
+        else:
+            self.notifier.update_credentials(email_cfg["sender"], email_cfg["app_password"], email_cfg["recipient"])
         self.email_enabled = email_cfg["enabled"]
         
-        # 6. Database
-        self.db = DatabaseManager(db_cfg["host"], db_cfg["user"], db_cfg["password"], db_cfg["database"])
+        # Database
+        if not hasattr(self, 'db'):
+            self.db = DatabaseManager(db_cfg["host"], db_cfg["user"], db_cfg["password"], db_cfg["database"])
+        else:
+            self.db.update_config(db_cfg["host"], db_cfg["user"], db_cfg["password"], db_cfg["database"])
         self.db_enabled = db_cfg["enabled"]
-        
-        # Track detection state
+
+    def _reset_detection_states(self):
+        cam_cfg = self.config_mgr.get_cameras()
         self.detection_counters = {cam['name']: 0 for cam in cam_cfg}
         self.session_ids = {cam['name']: None for cam in cam_cfg}
-        self.DETECTION_THRESHOLD = 2
+
+    def reload_config(self):
+        """Method called by GUI after saving settings."""
+        logger.info("🔄 Reîncărcare configurație sistem...")
+        self.config_mgr.load_config()
+        self.cfg = self.config_mgr.config
+        self._setup_components()
+        # Note: we don't necessarily want to reset stats unless cams change significantly
+        # but for simplicity, we refresh the keys
+        self._reset_detection_states()
 
     def monitoring_loop(self):
         """Background thread for AI monitoring."""
-        if not self.active_cameras:
-            logger.warning("Nicio cameră activată în setări. Monitorizare fundal inactivă.")
-            while self.running: time.sleep(1)
-            return
-
-        logger.info(f"Monitorizare AI pornită în fundal ({len(self.active_cameras)} boxe).")
+        logger.info("🛰️ Buclă de monitorizare pornită (fundal).")
         try:
             while self.running:
+                # If no cameras enabled, just wait
+                if not self.active_cameras:
+                    time.sleep(1)
+                    continue
+
                 frames = self.cameras.get_latest_frames()
                 
                 for i, cam in enumerate(self.active_cameras):
@@ -90,12 +128,12 @@ class AIWashGuard:
                                     self.session_ids[cam_name] = self.db.start_session(cam_name)
                                     self.db.log_incident(cam_name, "Vehicul Interzis (ATV/Cross)")
                     else:
-                        if self.detection_counters[cam_name] > 0:
+                        if self.detection_counters.get(cam_name, 0) > 0:
                             logger.info(f"Reluare curent {cam_name}. Zonă liberă.")
                             relay_idx = cam.get("id", i)
                             self.relays.set_relay(relay_idx, False)
                             
-                            if self.db_enabled and self.session_ids[cam_name] is not None:
+                            if self.db_enabled and self.session_ids.get(cam_name) is not None:
                                 self.db.end_session(self.session_ids[cam_name])
                                 self.session_ids[cam_name] = None
                                 
@@ -107,7 +145,7 @@ class AIWashGuard:
             logger.error(f"Eroare în bucla de monitorizare: {e}")
 
     def stop(self, *args):
-        logger.info("Oprire sistem...")
+        logger.info("🛑 Proces de oprire... Vă rugăm așteptați.")
         self.running = False
         if hasattr(self, 'cameras'): self.cameras.stop_all()
         if hasattr(self, 'relays'): self.relays.cleanup()
@@ -117,16 +155,18 @@ class AIWashGuard:
 if __name__ == "__main__":
     engine = AIWashGuard()
     
-    # Start AI monitoring in background daemon thread
+    # Start AI monitoring thread
     monitor_thread = threading.Thread(target=engine.monitoring_loop, daemon=True)
     monitor_thread.start()
     
-    # Start Dashboard in main thread
+    # Start Dashboard
     app = DashboardApp(engine)
     
-    # Handle OS signals
+    # Signals
     signal.signal(signal.SIGINT, engine.stop)
     signal.signal(signal.SIGTERM, engine.stop)
     
-    app.mainloop()
-    engine.stop()
+    try:
+        app.mainloop()
+    finally:
+        engine.stop()

@@ -78,27 +78,21 @@ class DashboardApp(ctk.CTk):
         self.settings_btn = ctk.CTkButton(self.top_frame, text="⚙️ Setări", width=100, command=self._open_settings)
         self.settings_btn.pack(side="right", padx=20)
 
-    def _build_grid(self):
-        self.grid_frame = ctk.CTkFrame(self)
-        self.grid_frame.pack(expand=True, fill="both", padx=10, pady=10)
-        
-        # Grid layout 2x2
-        self.grid_frame.grid_columnconfigure((0, 1), weight=1)
-        self.grid_frame.grid_rowconfigure((0, 1), weight=1)
-        
-        self.cam_widgets = {}
+    def refresh_widgets(self):
+        """Re-read config and update camera names/widgets."""
+        self.config_mgr.load_config()
         cam_configs = self.config_mgr.get_cameras()
         
-        for i in range(4):
+        # We assume 4 widgets always exist. Update their names.
+        for i, (old_name, widget) in enumerate(list(self.cam_widgets.items())):
             cfg = cam_configs[i] if i < len(cam_configs) else {"name": f"Boxa {i+1}"}
-            name = cfg["name"]
+            new_name = cfg["name"]
             
-            row = i // 2
-            col = i % 2
-            
-            widget = CameraWidget(self.grid_frame, name)
-            widget.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
-            self.cam_widgets[name] = widget
+            widget.label_name.configure(text=new_name)
+            widget.camera_name = new_name
+            # Update key in dict if changed
+            if new_name != old_name:
+                self.cam_widgets[new_name] = self.cam_widgets.pop(old_name)
 
     def _update_loop(self):
         """Periodically update camera feeds from the monitoring engine."""

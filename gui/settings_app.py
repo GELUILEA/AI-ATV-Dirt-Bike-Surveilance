@@ -170,10 +170,17 @@ class SettingsApp(ctk.CTkToplevel):
             self.config_manager.config["ai"]["confidence"] = float(self.ai_conf.get())
         except Exception as e:
             messagebox.showerror("Eroare", f"Format invalid pentru pini sau AI confidence: {e}")
-            return
-
-        self.config_manager.save()
-        messagebox.showinfo("Succes", "Setările au fost salvate cu succes!")
+           # Save to file
+        self.config_manager.save_config()
+        
+        # Trigger engine reload and UI refresh
+        if self.master and hasattr(self.master, 'engine'):
+            self.master.engine.reload_config()
+            
+        if hasattr(self.master, 'refresh_widgets'):
+            self.master.refresh_widgets()
+            
+        messagebox.showinfo("Succes", "Setările au fost salvate și aplicate!")
         self.destroy()
 
 if __name__ == "__main__":

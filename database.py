@@ -113,6 +113,39 @@ class DatabaseManager:
         except mysql.connector.Error as err:
             logger.error(f"Eroare închidere sesiune: {err}")
 
+    def update_config(self, host, user, password, database):
+        """
+        Updates the database connection configuration and attempts to reconnect.
+        """
+        if (self.config['host'] == host and 
+            self.config['user'] == user and 
+            self.config['database'] == database):
+            logger.info("Configurația bazei de date este deja actualizată.")
+            return
+        
+        logger.info("Actualizare configurație bază de date...")
+        self.config['host'] = host
+        self.config['user'] = user
+        self.config['password'] = password
+        self.config['database'] = database
+        
+        self.close() # Close existing connection
+        self._reconnect() # Attempt to establish a new connection with updated config
+
+    def _reconnect(self):
+        """
+        Attempts to establish a new connection using the current configuration.
+        This is called internally after config updates or if a connection is lost.
+        """
+        logger.info("Încercare reconectare la baza de date...")
+        self.conn = None # Ensure _get_connection tries to make a new connection
+        self._get_connection()
+        if self.conn and self.conn.is_connected():
+            logger.info("Reconectare la baza de date reușită.")
+            self._initialize_db() # Re-initialize tables in case of new database
+        else:
+            logger.error("Reconectare la baza de date eșuată.")
+
     def close(self):
         if self.conn and self.conn.is_connected():
             self.conn.close()
