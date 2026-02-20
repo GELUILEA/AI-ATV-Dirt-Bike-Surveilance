@@ -18,11 +18,14 @@ sudo apt update && sudo apt upgrade -y
 # Instalare libgpiod pentru control relee
 sudo apt install python3-libgpiod gpiod -y
 
-# Instalare MySQL connector
-pip install mysql-connector-python
+# Instalare dependențe Python
+# Metoda recomandată (Virtual Environment):
+python -m venv venv
+source venv/bin/activate
+pip install customtkinter ultralytics opencv-python mysql-connector-python
 
-# Instalare biblioteci AI
-pip install ultralytics opencv-python
+# SAU Metoda rapidă (dacă primești eroare de managed environment):
+pip install customtkinter ultralytics opencv-python mysql-connector-python --break-system-packages
 ```
 
 ## Configurare
