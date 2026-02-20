@@ -5,6 +5,9 @@ settings_app.py - GUI for configuring AI Wash Guard
 import customtkinter as ctk
 from tkinter import messagebox
 from config_manager import ConfigManager
+from camera_manager import CameraManager
+from notifier import EmailNotifier
+from database import DatabaseManager
 
 # Appearance
 ctk.set_appearance_mode("Dark")
@@ -71,7 +74,15 @@ class SettingsApp(ctk.CTkToplevel):
             en_cb = ctk.CTkCheckBox(frame, text="Activ", variable=en_var)
             en_cb.grid(row=0, column=3, padx=5, pady=5)
             
-            self.cam_entries.append({"name": name_var, "url": url_var, "enabled": en_var})
+            # Test Button
+            status_label = ctk.CTkLabel(frame, text="", font=("Arial", 16))
+            status_label.grid(row=0, column=5, padx=5, pady=5)
+            
+            test_btn = ctk.CTkButton(frame, text="🔍 Test", width=60, 
+                                    command=lambda u=url_var, l=status_label: self._test_camera(u, l))
+            test_btn.grid(row=0, column=4, padx=5, pady=5)
+            
+            self.cam_entries.append({"name": name_var, "url": url_var, "enabled": en_var, "status_label": status_label})
 
     def _build_email_tab(self):
         email = self.config_manager.get_email_settings()
@@ -96,6 +107,11 @@ class SettingsApp(ctk.CTkToplevel):
         self.email_to = ctk.CTkEntry(f, width=300)
         self.email_to.insert(0, email["recipient"])
         self.email_to.grid(row=2, column=1, padx=10, pady=10)
+        
+        # Test Email Button
+        self.test_email_btn = ctk.CTkButton(self.tab_email, text="📧 Trimite Email de Test", 
+                                           command=self._test_email)
+        self.test_email_btn.pack(pady=20)
 
     def _build_db_tab(self):
         db = self.config_manager.get_mysql_settings()
@@ -116,6 +132,11 @@ class SettingsApp(ctk.CTkToplevel):
             entry.insert(0, db[key])
             entry.grid(row=i, column=1, padx=10, pady=10)
             self.db_entries[key] = entry
+            
+        # Test DB Button
+        self.test_db_btn = ctk.CTkButton(self.tab_db, text="🗄️ Test Conexiune DB", 
+                                        command=self._test_database)
+        self.test_db_btn.pack(pady=20)
 
     def _build_hw_tab(self):
         hw = self.config_manager.get_hardware_settings()
@@ -182,6 +203,54 @@ class SettingsApp(ctk.CTkToplevel):
             
         messagebox.showinfo("Succes", "Setările au fost salvate și aplicate!")
         self.destroy()
+
+    def _test_camera(self, url_var, status_label):
+        url = url_var.get()
+        if not url:
+            messagebox.showwarning("Atenție", "Introduceți un URL pentru cameră.")
+            return
+            
+        status_label.configure(text="⏳", text_color="orange")
+        self.update_idletasks()
+        
+        success = CameraManager.test_connection(url)
+        if success:
+            status_label.configure(text="✅", text_color="green")
+        else:
+            status_label.configure(text="❌", text_color="red")
+            messagebox.showerror("Eroare", "Nu s-a putut conecta la fluxul RTSP.")
+
+    def _test_email(self):
+        sender = self.email_user.get()
+        password = self.email_pass.get()
+        recipient = self.email_to.get()
+        
+        if not all([sender, password, recipient]):
+            messagebox.showwarning("Atenție", "Completați toate datele de email.")
+            return
+            
+        notifier = EmailNotifier(sender, password, recipient)
+        success, msg = notifier.test_connection()
+        if success:
+            messagebox.showinfo("Succes", msg)
+        else:
+            messagebox.showerror("Eroare", f"Test eșuat: {msg}")
+
+    def _test_database(self):
+        host = self.db_entries["host"].get()
+        user = self.db_entries["user"].get()
+        password = self.db_entries["password"].get()
+        database = self.db_entries["database"].get()
+        
+        if not all([host, user, database]):
+            messagebox.showwarning("Atenție", "Completați datele conexiunii (host, user, DB).")
+            return
+            
+        success, msg = DatabaseManager.test_connection(host, user, password, database)
+        if success:
+            messagebox.showinfo("Succes", msg)
+        else:
+            messagebox.showerror("Eroare", f"Conexiune eșuată: {msg}")
 
 if __name__ == "__main__":
     app = SettingsApp()

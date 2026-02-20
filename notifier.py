@@ -62,3 +62,24 @@ class EmailNotifier:
         except Exception as e:
             logger.error(f"Eroare la trimiterea email-ului: {e}")
             return False
+
+    def test_connection(self):
+        """Sends a test email to verify credentials and recipient."""
+        try:
+            subject = "🛡️ Test Conexiune AI Wash Guard"
+            body = "Acesta este un email de test pentru a verifica configurarea sistemului AI Wash Guard."
+            
+            msg = MIMEMultipart()
+            msg['From'] = self.sender_email
+            msg['To'] = self.recipient_email
+            msg['Subject'] = subject
+            msg.attach(MIMEText(body, 'plain'))
+
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=10)
+            server.starttls()
+            server.login(self.sender_email, self.app_password)
+            server.sendmail(self.sender_email, self.recipient_email, msg.as_string())
+            server.quit()
+            return True, "Email de test trimis cu succes!"
+        except Exception as e:
+            return False, str(e)

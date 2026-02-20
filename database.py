@@ -130,6 +130,24 @@ class DatabaseManager:
         self.config['database'] = database
         self.close() # Reset connection to force lazy reconnect
 
+    @staticmethod
+    def test_connection(host, user, password, database):
+        """Quickly check if the database configuration is valid and reachable."""
+        try:
+            conn = mysql.connector.connect(
+                host=host,
+                user=user,
+                password=password,
+                database=database,
+                connect_timeout=5
+            )
+            if conn.is_connected():
+                conn.close()
+                return True, "Conexiune la baza de date reușită!"
+            return False, "Nu s-a putut stabili conexiunea."
+        except Exception as e:
+            return False, str(e)
+
     def close(self):
         if self.conn and self.conn.is_connected():
             try:

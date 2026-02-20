@@ -97,6 +97,19 @@ class CameraManager:
     def get_latest_frames(self):
         return {name: stream.read() for name, stream in self.streams.items()}
 
+    @staticmethod
+    def test_connection(url):
+        """Quickly check if a camera URL is reachable."""
+        try:
+            cap = cv2.VideoCapture(url)
+            if cap.isOpened():
+                ret, frame = cap.read()
+                cap.release()
+                return ret
+            return False
+        except Exception:
+            return False
+
     def stop_all(self):
         for stream in self.streams.values():
             stream.stop()

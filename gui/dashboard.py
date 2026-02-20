@@ -31,18 +31,21 @@ class CameraWidget(ctk.CTkFrame):
     def update_frame(self, frame, is_alert=False):
         """Update the label with a new OpenCV frame."""
         if frame is not None:
-            # Resize frame to fit widget (approx)
-            h, w = frame.shape[:2]
-            aspect = w / h
-            target_w = 400
-            target_h = int(target_w / aspect)
-            
-            frame_resized = cv2.resize(frame, (target_w, target_h))
-            frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
-            img = Image.fromarray(frame_rgb)
-            img_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(target_w, target_h))
-            
-            self.video_label.configure(image=img_tk, text="")
+            try:
+                # Resize frame to fit widget (approx)
+                h, w = frame.shape[:2]
+                aspect = w / h
+                target_w = 400
+                target_h = int(target_w / aspect)
+                
+                frame_resized = cv2.resize(frame, (target_w, target_h))
+                frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(frame_rgb)
+                img_tk = ctk.CTkImage(light_image=img, dark_image=img, size=(target_w, target_h))
+                
+                self.video_label.configure(image=img_tk, text="")
+            except Exception as e:
+                logger.error(f"Eroare update frame {self.camera_name}: {e}")
             
         if is_alert:
             self.status_label.configure(text="STATUS: !!! ALARMĂ !!!", text_color="red")
@@ -57,16 +60,20 @@ class DashboardApp(ctk.CTk):
         self.engine = monitoring_engine
         self.config_mgr = ConfigManager()
         
+        logger.info("🎨 Construire interfață Dashboard...")
         self.title("🛡️ AI Wash Guard - Dashboard")
         self.geometry("1100x850")
         
         # UI Setup
         self._build_top_menu()
+        logger.info("✅ Meniu superior terminat.")
         self._build_grid()
+        logger.info(f"✅ Grid camere finalizat ({len(self.cam_widgets)} boxe).")
         
         # Start update loop
         self.update_interval = 30 # ms
         self.after(self.update_interval, self._update_loop)
+        logger.info("🚀 Buclă update video activă.")
 
     def _build_top_menu(self):
         self.top_frame = ctk.CTkFrame(self, height=50)
@@ -78,31 +85,55 @@ class DashboardApp(ctk.CTk):
         self.settings_btn = ctk.CTkButton(self.top_frame, text="⚙️ Setări", width=100, command=self._open_settings)
         self.settings_btn.pack(side="right", padx=20)
 
-    def refresh_widgets(self):
-        """Re-read config and update camera names/widgets."""
-        self.config_mgr.load_config()
+    def _build_grid(self):
+        self.grid_frame = ctk.CTkFrame(self)
+        self.grid_frame.pack(expand=True, fill="both", padx=10, pady=10)
+        
+        # Grid layout 2x2
+        self.grid_frame.grid_columnconfigure((0, 1), weight=1)
+        self.grid_frame.grid_rowconfigure((0, 1), weight=1)
+        
+        self.cam_widgets = {}
         cam_configs = self.config_mgr.get_cameras()
         
-        # We assume 4 widgets always exist. Update their names.
+        for i in range(4):
+            cfg = cam_configs[i] if i < len(cam_configs) else {"name": f"Boxa {i+1}"}
+            name = cfg["name"]
+            
+            row = i // 2
+            col = i % 2
+            
+            widget = CameraWidget(self.grid_frame, name)
+            widget.grid(row=row, column=col, padx=10, pady=10, sticky="nsew")
+            self.cam_widgets[name] = widget
+
+    def refresh_widgets(self):
+        """Re-read config and update camera names/widgets."""
+        logger.info("♻️ Reîmprospătare widget-uri Dashboard...")
+        self.config_mgr.load()
+        cam_configs = self.config_mgr.get_cameras()
+        
         for i, (old_name, widget) in enumerate(list(self.cam_widgets.items())):
             cfg = cam_configs[i] if i < len(cam_configs) else {"name": f"Boxa {i+1}"}
             new_name = cfg["name"]
             
             widget.label_name.configure(text=new_name)
             widget.camera_name = new_name
-            # Update key in dict if changed
             if new_name != old_name:
                 self.cam_widgets[new_name] = self.cam_widgets.pop(old_name)
+        logger.info("✅ Widget-uri actualizate.")
 
     def _update_loop(self):
         """Periodically update camera feeds from the monitoring engine."""
-        frames = self.engine.cameras.get_latest_frames()
-        
-        for name, widget in self.cam_widgets.items():
-            frame = frames.get(name)
-            # Check if this camera is currently triggering an alert in the engine
-            is_alert = self.engine.detection_counters.get(name, 0) >= self.engine.DETECTION_THRESHOLD
-            widget.update_frame(frame, is_alert)
+        try:
+            frames = self.engine.cameras.get_latest_frames()
+            
+            for name, widget in self.cam_widgets.items():
+                frame = frames.get(name)
+                is_alert = self.engine.detection_counters.get(name, 0) >= self.engine.DETECTION_THRESHOLD
+                widget.update_frame(frame, is_alert)
+        except Exception as e:
+            logger.error(f"Eroare în bucla de update UI: {e}")
             
         self.after(self.update_interval, self._update_loop)
 
@@ -110,6 +141,5 @@ class DashboardApp(ctk.CTk):
         SettingsApp(self)
 
 if __name__ == "__main__":
-    # For standalone testing (won't have engine)
     app = DashboardApp(None)
     app.mainloop()

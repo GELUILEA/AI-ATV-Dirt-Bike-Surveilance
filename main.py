@@ -49,7 +49,6 @@ class AIWashGuard:
         if not hasattr(self, 'relays'):
             self.relays = RelayController(pins=relay_pins, active_low=hw_cfg["active_low"])
         else:
-            # Check if pins changed (simplified: just recreate if logic is complex)
             if self.relays.pins != relay_pins:
                 logger.info("Pinii de releu s-au schimbat. Reinițializare hardware.")
                 self.relays.cleanup()
@@ -59,7 +58,7 @@ class AIWashGuard:
         if not hasattr(self, 'detector'):
             self.detector = AiDetector(model_path=ai_cfg["model"], confidence=ai_cfg["confidence"])
         
-        # Cameras (Robust: will be empty if none configured)
+        # Cameras
         self.active_cameras = [c for c in cam_cfg if c.get("enabled", True)]
         if not hasattr(self, 'cameras'):
             self.cameras = CameraManager(cam_cfg)
@@ -88,19 +87,23 @@ class AIWashGuard:
     def reload_config(self):
         """Method called by GUI after saving settings."""
         logger.info("🔄 Reîncărcare configurație sistem...")
-        self.config_mgr.load_config()
+        self.config_mgr.load()
         self.cfg = self.config_mgr.config
         self._setup_components()
-        # Note: we don't necessarily want to reset stats unless cams change significantly
-        # but for simplicity, we refresh the keys
         self._reset_detection_states()
 
     def monitoring_loop(self):
         """Background thread for AI monitoring."""
         logger.info("🛰️ Buclă de monitorizare pornită (fundal).")
+        heartbeat_timer = time.time()
+        
         try:
             while self.running:
-                # If no cameras enabled, just wait
+                # Heartbeat every 30s
+                if time.time() - heartbeat_timer > 30:
+                    logger.info("💓 Heartbeat monitorizare: activ.")
+                    heartbeat_timer = time.time()
+
                 if not self.active_cameras:
                     time.sleep(1)
                     continue
@@ -156,11 +159,12 @@ if __name__ == "__main__":
     try:
         engine = AIWashGuard()
         
-        # Start AI monitoring thread
+        logger.info("⚙️ Motorul de monitorizare pornește...")
         monitor_thread = threading.Thread(target=engine.monitoring_loop, daemon=True)
         monitor_thread.start()
         
         # Start Dashboard
+        logger.info("🖥️ Lansare interfață grafică...")
         app = DashboardApp(engine)
         
         # Signals
