@@ -6,6 +6,8 @@ import smtplib
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import cv2
 from datetime import datetime
 
 logger = logging.getLogger(__name__)
@@ -27,9 +29,9 @@ class EmailNotifier:
         self.recipient_email = recipient
         logger.info("Email credentials updated.")
 
-    def send_alert(self, bay_name, vehicle_type):
+    def send_alert(self, bay_name, vehicle_type, frame=None):
         """
-        Sends an alert email for a detection incident.
+        Sends an alert email for a detection incident, optionally with an image.
         """
         try:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -41,7 +43,8 @@ class EmailNotifier:
             Zonă: {bay_name}
             Vehicul: {vehicle_type}
             Data/Ora: {timestamp}
-            Acțiune: Sistemul a întrerupt alimentarea cu energie.
+            
+            Sistemul a întrerupt alimentarea cu energie și a capturat imaginea atașată.
             """
 
             msg = MIMEMultipart()
@@ -50,7 +53,18 @@ class EmailNotifier:
             msg['Subject'] = subject
             msg.attach(MIMEText(body, 'plain'))
 
-            server = smtplib.SMTP(self.smtp_server, self.smtp_port)
+            # Attach image if provided
+            if frame is not None:
+                try:
+                    # Encode frame as jpg
+                    ret, buffer = cv2.imencode('.jpg', frame)
+                    if ret:
+                        img_attachment = MIMEImage(buffer.tobytes(), name=f"detecție_{bay_name}.jpg")
+                        msg.attach(img_attachment)
+                except Exception as img_err:
+                    logger.error(f"Eroare la procesarea imaginii pentru email: {img_err}")
+
+            server = smtplib.SMTP(self.smtp_server, self.smtp_port, timeout=12)
             server.starttls()
             server.login(self.sender_email, self.app_password)
             text = msg.as_string()

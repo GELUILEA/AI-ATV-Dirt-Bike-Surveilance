@@ -126,7 +126,8 @@ class AIWashGuard:
                             if self.detection_counters[cam_name] == self.DETECTION_THRESHOLD:
                                 logger.error(f"!!! ALARMĂ {cam_name} !!! - Vehicul Interzis.")
                                 if self.email_enabled:
-                                    self.notifier.send_alert(cam_name, "Vehicul Interzis (ATV/Cross)")
+                                    # Pass the triggering frame to the email
+                                    self.notifier.send_alert(cam_name, "Vehicul Interzis (ATV/Cross)", frame=frame)
                                 if self.db_enabled:
                                     self.session_ids[cam_name] = self.db.start_session(cam_name)
                                     self.db.log_incident(cam_name, "Vehicul Interzis (ATV/Cross)")
