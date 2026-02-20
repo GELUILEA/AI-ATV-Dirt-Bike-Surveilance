@@ -4,7 +4,7 @@ dashboard.py - Main Dashboard for AI Wash Guard with Quad-View
 
 import customtkinter as ctk
 import cv2
-from PIL import Image, ImageTk
+from PIL import Image
 import threading
 import time
 import logging
